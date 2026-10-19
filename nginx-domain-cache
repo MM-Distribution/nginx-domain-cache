@@ -108,7 +108,7 @@ case $cmd in
     if [ -f "$TARGET" ]; then show; exit 0; fi
     mkdir -p "$(dirname "$TARGET")"
     cat > "$TARGET" <<EOF
-# Managed by $NAME (github.com/mm-distribution/$NAME); undo: $NAME enable $DOMAIN
+# Managed by $NAME; undo: $NAME enable $DOMAIN
 # nginx page cache off for $DOMAIN since $(date +%F).
 set \$CPANEL_PROXY_CACHE off;
 set \$CPANEL_SKIP_PROXY_CACHING 1;
