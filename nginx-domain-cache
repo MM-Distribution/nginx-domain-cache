@@ -1,0 +1,149 @@
+#!/bin/bash
+# nginx-domain-cache: turn cPanel's nginx page cache off (or back on) for one
+# domain, when the account's setting in WHM covers every domain at once.
+#
+#   nginx-domain-cache disable <domain>   cache off for this domain
+#   nginx-domain-cache enable <domain>    back to the account's setting
+#   nginx-domain-cache status [<domain>]  one domain, or every override
+#
+# disable writes a small include into the domain's custom-config folder
+# (/etc/nginx/conf.d/users/<account>/<folder>/), which cPanel keeps when it
+# rebuilds the nginx config; enable deletes it. The config is tested before
+# nginx reloads, and the change is undone if the test fails.
+# Source: github.com/mm-distribution/nginx-domain-cache
+set -euo pipefail
+
+NAME=nginx-domain-cache
+CONF_DIR=/etc/nginx/conf.d/users
+DOMAINS=/etc/userdatadomains
+FILE=$NAME.conf
+
+die() { echo "$NAME: $*" >&2; exit 1; }
+usage() { sed -n '5,7s/^#//p' "$0"; exit "${1:-0}"; }
+
+[ "$(id -u)" -eq 0 ] || die "run as root"
+
+# Domains that look like the one asked for: either contains the other, or they
+# share the first 5 letters of a name part (so typos late in a word still match).
+suggest() {
+  local want=$1 parts
+  parts=$(tr '.' '\n' <<< "$want" | grep -vxE 'www|com|net|org|info|biz|us' | awk 'length($0) >= 4 { print substr($0, 1, 5) }' || true)
+  cut -d: -f1 "$DOMAINS" | awk -v w="$want" -v p="$parts" '
+    BEGIN { n = split(p, part, "\n") }
+    { d = $1; hit = (index(d, w) || index(w, d))
+      for (i = 1; i <= n && !hit; i++) if (part[i] != "" && index(d, part[i])) hit = 1
+      if (hit) print "  " d }' | sort -u | head -15
+}
+
+# Sets ACCOUNT, FOLDER and TARGET for a domain, and AUTH=1 when cPanel already
+# leaves the domain uncached because of its password protection; or exits
+# with suggestions.
+lookup() {
+  local d=${1,,}; d=${d#www.}
+  DOMAIN=$d
+  ACCOUNT=$(awk -F': ' -v d="$d" '$1 == d { split($2, f, "=="); print f[1]; exit }' "$DOMAINS")
+  if [ -z "$ACCOUNT" ]; then
+    echo "$NAME: no cPanel domain named $d" >&2
+    local s; s=$(suggest "$d")
+    [ -n "$s" ] && { echo "Did you mean:" >&2; echo "$s" >&2; }
+    exit 1
+  fi
+  local conf=$CONF_DIR/$ACCOUNT.conf
+  [ -f "$conf" ] || die "$conf not found (is ea-nginx installed?)"
+  # The server block whose server_name lists the domain names its own
+  # include folder; for an addon domain that is its subdomain twin's name.
+  read -r FOLDER AUTH < <(awk -v d="$d" -v a="$ACCOUNT" '
+    /^[[:space:]]*server_name / { mine = 0; auth = 0; for (i = 2; i <= NF; i++) { n = $i; sub(/;$/, "", n); if (n == d) mine = 1 } }
+    mine && /has basic auth, so disable cache/ { auth = 1 }
+    mine && $1 == "include" && index($2, "conf.d/users/" a "/") == 1 {
+      f = substr($2, length("conf.d/users/" a "/") + 1)
+      if (f ~ /^[^\/*]+\/\*\.conf;$/) { sub(/\/\*\.conf;$/, "", f); print f, auth; exit } }' "$conf") || true
+  [ -n "${FOLDER:-}" ] || die "no server block for $d in $conf"
+  TARGET=$CONF_DIR/$ACCOUNT/$FOLDER/$FILE
+}
+
+# Account-wide cache setting: the account's own file, else the server default.
+account_cache() {
+  local f=/var/cpanel/userdata/$1/nginx-cache.json
+  [ -f "$f" ] || f=/etc/nginx/ea-nginx/cache.json
+  if grep -qE '"enabled"[[:space:]]*:[[:space:]]*(true|1)' "$f" 2>/dev/null; then echo on; else echo off; fi
+}
+
+workers() { pgrep -P "$(cat /run/nginx.pid)" | sort; }
+
+reload() { # $1 = command that undoes the change
+  if ! out=$(nginx -t 2>&1); then
+    eval "$1"
+    echo "$out" >&2
+    die "nginx config test failed; change undone, nginx not reloaded"
+  fi
+  # systemctl returns before nginx has read the new config. Wait for a new
+  # worker, then a moment more (old workers take a few hundred ms to stop
+  # taking new connections), so the change is live when this script says so.
+  local old; old=$(workers)
+  systemctl reload nginx
+  for _ in $(seq 1 300); do
+    if [ -n "$(comm -13 <(echo "$old") <(workers))" ]; then sleep 1; return 0; fi
+    sleep 0.1
+  done
+  echo "$NAME: nginx reloaded, but no new workers after 30s; check: systemctl status nginx" >&2
+}
+
+show() { # one line for $DOMAIN
+  local acct; acct=$(account_cache "$ACCOUNT")
+  if [ -f "$TARGET" ]; then
+    echo "$DOMAIN: cache OFF for this domain ($TARGET); account $ACCOUNT: $acct"
+  elif [ "$AUTH" = 1 ]; then
+    echo "$DOMAIN: not cached: cPanel turns the cache off for password-protected domains; account $ACCOUNT: $acct"
+  else
+    echo "$DOMAIN: follows account $ACCOUNT ($acct)"
+  fi
+}
+
+cmd=${1:-}; [ $# -ge 1 ] && shift
+case $cmd in
+  disable)
+    [ $# -eq 1 ] || usage 1
+    lookup "$1"
+    if [ -f "$TARGET" ]; then show; exit 0; fi
+    mkdir -p "$(dirname "$TARGET")"
+    cat > "$TARGET" <<EOF
+# Managed by $NAME (github.com/mm-distribution/$NAME); undo: $NAME enable $DOMAIN
+# nginx page cache off for $DOMAIN since $(date +%F).
+set \$CPANEL_PROXY_CACHE off;
+set \$CPANEL_SKIP_PROXY_CACHING 1;
+EOF
+    chmod 644 "$TARGET"
+    reload "rm -f '$TARGET'"
+    show
+    [ "$(account_cache "$ACCOUNT")" = on ] || echo "(caching is off for the whole account right now; this applies once it is turned on)"
+    ;;
+  enable)
+    [ $# -eq 1 ] || usage 1
+    lookup "$1"
+    if [ ! -f "$TARGET" ]; then show; exit 0; fi
+    saved=$(cat "$TARGET")
+    rm -f "$TARGET"
+    reload "printf '%s\n' \"\$saved\" > '$TARGET'"
+    rmdir "$(dirname "$TARGET")" 2>/dev/null || true
+    show
+    ;;
+  status)
+    if [ $# -eq 1 ]; then lookup "$1"; show; exit 0; fi
+    [ $# -eq 0 ] || usage 1
+    found=0
+    for f in "$CONF_DIR"/*/*/"$FILE"; do
+      [ -e "$f" ] || continue
+      found=1
+      a=$(basename "$(dirname "$(dirname "$f")")"); folder=$(basename "$(dirname "$f")")
+      if awk -F': ' -v d="$folder" -v a="$a==" '$1 == d && index($2, a) == 1 { ok = 1 } END { exit !ok }' "$DOMAINS"; then
+        echo "$folder ($a): cache OFF; account: $(account_cache "$a")"
+      else
+        echo "$folder ($a): override left behind, domain no longer in cPanel: $f"
+      fi
+    done
+    [ $found -eq 1 ] || echo "no domains have the cache turned off by $NAME"
+    ;;
+  -h|--help|help) usage ;;
+  *) usage 1 ;;
+esac
