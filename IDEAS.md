@@ -11,8 +11,8 @@ added. A pattern could cover them all.
 Points to settle:
 
 - **The pattern means subdomains only.** The parent (`sandbox.example.com`) may share a server block
-  with the live site (an alias), so disabling it would also stop caching the live site. `*.sandbox.example.com`
-  should match `a.sandbox.example.com` but not `sandbox.example.com`.
+  with the live site (an alias), so disabling it would also stop caching the live site.
+  `*.sandbox.example.com` should match `a.sandbox.example.com` but not `sandbox.example.com`.
 - **Existing vs. future subdomains.** nginx has no per-pattern switch: cPanel writes one server block
   per domain, and the override file goes into each block's folder. Two ways to do it:
   1. *Expand now:* `disable '*.sandbox.example.com'` disables every current match. Simple, but a
