@@ -1,0 +1,81 @@
+#!/bin/bash
+# nginx-purge-url: delete cPanel's nginx page-cache copies of single pages, so the next request goes to the site.
+#
+#   nginx-purge-url [-n] [--prefix] <url> [<url> ...]
+#     -n, --dry-run  list what would be deleted, delete nothing
+#     --prefix       every cached page whose path starts with the URL's path (e.g. https://example.com/blog/)
+#   Options apply to every URL on the command line; run --prefix purges on their own.
+#
+# By default a URL matches that exact path with or without a query string (?page=2, ?nocache=...), for
+# http and https, and for the host with and without "www.". Copies are found by the "KEY: <url>" line nginx
+# writes into each cache file under /var/cache/ea-nginx/proxy/<account>/; only files under that folder are
+# deleted. Use nginx-domain-cache for a whole domain.
+# Source: github.com/mm-distribution/nginx-domain-cache
+set -euo pipefail
+
+NAME=nginx-purge-url
+CACHE_ROOT=/var/cache/ea-nginx/proxy
+DOMAINS=/etc/userdatadomains
+
+die() { echo "$NAME: $*" >&2; exit 1; }
+usage() { sed -n '4,8s/^#//p' "$0"; exit "${1:-0}"; }
+# Escape a string for use inside an extended regular expression.
+ere() { sed -e 's/[][\.*^$?+(){}|/]/\\&/g' <<< "$1"; }
+
+[ "$(id -u)" -eq 0 ] || die "run as root"
+
+DRY=0 PREFIX=0 URLS=() status=0
+for a in "$@"; do
+  case "$a" in
+    -n|--dry-run) DRY=1 ;;
+    --prefix) PREFIX=1 ;;
+    -h|--help) usage ;;
+    -*) die "unknown option: $a (see --help)" ;;
+    *) URLS+=("$a") ;;
+  esac
+done
+[ ${#URLS[@]} -gt 0 ] || usage 1
+
+total=0
+for url in "${URLS[@]}"; do
+  [[ "$url" =~ ^(https?://)?([^/?#]+)(/[^?#]*)?([?][^#]*)?$ ]] || die "not a URL: $url"
+  host=${BASH_REMATCH[2],,} path=${BASH_REMATCH[3]:-/}
+  bare=${host#www.}
+
+  # The cache folder belongs to the account that owns the domain (as a main, addon, sub or parked domain).
+  account=$(awk -F': ' -v d="$bare" -v w="www.$bare" '$1 == d || $1 == w { split($2, f, "=="); print f[1]; exit }' "$DOMAINS")
+  if [ -z "$account" ]; then
+    echo "$NAME: $bare: not a domain on this server ($DOMAINS), skipped" >&2
+    status=1
+    continue
+  fi
+  dir=$CACHE_ROOT/$account
+  [ -d "$dir" ] || { echo "$url: no nginx cache for account $account"; continue; }
+
+  hosts="(www\\.)?$(ere "$bare")"
+  if [ "$PREFIX" -eq 1 ]; then
+    pattern="^KEY: https?://$hosts$(ere "$path")"
+  else
+    pattern="^KEY: https?://$hosts$(ere "$path")([?].*)?\$"
+  fi
+
+  mapfile -d '' files < <(grep -rlaZ -m1 -E "$pattern" "$dir" 2>/dev/null || true)
+  if [ ${#files[@]} -eq 0 ]; then
+    echo "$url: not cached"
+    continue
+  fi
+  for f in "${files[@]}"; do
+    case "$f" in "$dir"/*) ;; *) die "refusing to touch $f (outside $dir)" ;; esac
+    key=$(grep -a -m1 '^KEY: ' "$f" | cut -c6-)
+    if [ "$DRY" -eq 1 ]; then
+      echo "would delete: $key"
+    else
+      rm -f -- "${f:?}"
+      echo "deleted: $key"
+    fi
+    total=$((total + 1))
+  done
+done
+[ "$DRY" -eq 1 ] && echo "$total cached cop$([ "$total" -eq 1 ] && echo y || echo ies) would be deleted (dry run)" \
+                  || echo "$total cached cop$([ "$total" -eq 1 ] && echo y || echo ies) deleted"
+exit "$status"

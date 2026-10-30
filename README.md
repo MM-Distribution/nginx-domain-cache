@@ -73,3 +73,21 @@ install -m 755 nginx-domain-cache /usr/local/sbin/
 ```
 
 Tested on AlmaLinux 8, cPanel ea-nginx 1.31.6 in reverse-proxy mode.
+
+## nginx-purge-url
+
+Deletes the cached copies of single pages (not a whole domain), so the next request goes to the site. Useful after
+a page's status changes (published, unpublished, 403 to 410) on a site whose pages nginx caches.
+
+```
+nginx-purge-url [-n] [--prefix] <url> [<url> ...]
+```
+
+- A URL matches its exact path with or without a query string, over http and https, with and without `www.`.
+- `-n` / `--dry-run` lists what would be deleted. `--prefix` matches every path starting with the URL's path.
+- Options apply to every URL on the command line: run `--prefix` purges on their own.
+- Copies are found by the `KEY:` line in each file under `/var/cache/ea-nginx/proxy/<account>/` (account from
+  `/etc/userdatadomains`); nothing outside that folder is touched. One URL can have several copies (one per
+  `Vary` variant).
+
+Install: `install -m 755 nginx-purge-url /usr/local/sbin/`.
