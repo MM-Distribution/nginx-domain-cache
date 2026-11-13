@@ -90,4 +90,30 @@ nginx-purge-url [-n] [--prefix] <url> [<url> ...]
   `/etc/userdatadomains`); nothing outside that folder is touched. One URL can have several copies (one per
   `Vary` variant).
 
-Install: `install -m 755 nginx-purge-url /usr/local/sbin/`.
+Since 1.2.0 it is Python (`/usr/bin/python3.12`) on the shared `nginx_purge.py`, same options and output, and reads
+each account's cache folder once however many URLs it gets (300 URLs on a 67 MB cache: 0.4 s; the bash 1.1.0 took
+about 1 s per 20).
+
+Install: `install -m 644 nginx_purge.py /usr/local/lib/nginx-purge/` and `install -m 755 nginx-purge-url /usr/local/sbin/`.
+
+## nginx-purge-spool (sites ask for purges)
+
+Sites can't delete nginx's cache files themselves (they run as their own account; the cache belongs to nginx). A site
+that wants its changed pages purged at once writes their URLs, one per line, to a temporary file in its own folder
+`/var/spool/nginx-purge/<account>/` (owner the account, 700) and renames it to `*.urls`. A systemd watcher per
+account (`nginx-purge-spool@<account>.path`, inotify: nothing polls) starts `nginx-purge-spool.service`, which:
+
+- waits 2 s (a save that changes several pages finishes dropping its lists), then reads every `*.urls` file;
+- accepts a file only if it is a plain file (no links) owned by that account, at most 256 KB;
+- purges a URL only if its domain belongs to that account (`/etc/userdatadomains`), so a site can't clear another
+  site's pages; refused lines are logged with the reason;
+- purges all URLs in one batch (`nginx_purge.py`), deletes the files, and logs one line per run to
+  `/var/log/nginx-purge-spool.log`;
+- on failure, `nginx-purge-spool-failed.service` mails root the service status (`sendmail -t`).
+
+Which accounts may: `/etc/nginx-purge/accounts` (one per line). After editing it, `nginx-purge-spool --setup` makes
+the folders and enables or disables the watchers. Units: `systemd/` (install to `/etc/systemd/system/`, then
+`systemctl daemon-reload`).
+
+Tests: `python3.12 -m unittest discover -s tests -t .` (as root: the spool tests need real file ownership).
+

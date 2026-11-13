@@ -1,0 +1,136 @@
+#!/usr/bin/python3.12 -I
+# nginx-purge-spool: purge the pages sites list as changed. Run by systemd (nginx-purge-spool.path starts
+# nginx-purge-spool.service when a file appears); safe to run by hand as root.
+#
+# A site (its Drupal module) writes changed page URLs, one per line, to a temporary file in its own folder
+# /var/spool/nginx-purge/<account>/ and renames it to *.urls when complete. Only accounts listed in
+# /etc/nginx-purge/accounts have a folder; a file must be a plain file owned by that account; a URL is purged only
+# if its domain belongs to that account (cPanel's domain list), so a site can never clear another site's pages.
+# Every run is logged to /var/log/nginx-purge-spool.log (counts, rejected lines and why); processed files are deleted.
+#
+#   nginx-purge-spool          process what's waiting (what systemd runs)
+#   nginx-purge-spool --setup  after editing /etc/nginx-purge/accounts: make each listed account's folder (owner the
+#                              account, 700) and enable its watcher nginx-purge-spool@<account>.path; watchers of
+#                              accounts no longer listed are disabled (their folders are left for a person to remove)
+import os
+import stat
+import subprocess
+import sys
+import time
+import pwd
+
+for d in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/nginx-purge"):
+    sys.path.insert(0, d) if d not in sys.path else None
+import nginx_purge  # noqa: E402
+
+SPOOL = "/var/spool/nginx-purge"
+ACCOUNTS_FILE = "/etc/nginx-purge/accounts"
+LOG = "/var/log/nginx-purge-spool.log"
+MAX_FILE_BYTES = 256 * 1024
+MAX_URLS_PER_RUN = 5000
+
+
+def allowed_accounts(path=ACCOUNTS_FILE):
+    with open(path) as f:
+        return [l.split("#")[0].strip() for l in f if l.split("#")[0].strip()]
+
+
+def read_spool_file(path, uid):
+    """Text of one *.urls file, or raise ValueError: plain file only (no links), owned by the account, size-capped."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise ValueError("not a plain file")
+        if st.st_uid != uid:
+            raise ValueError("not owned by the account")
+        if st.st_size > MAX_FILE_BYTES:
+            raise ValueError(f"larger than {MAX_FILE_BYTES} bytes")
+        return os.read(fd, MAX_FILE_BYTES + 1).decode("utf-8", "replace")
+    finally:
+        os.close(fd)
+
+
+def collect(spool, accounts, domain_map, log):
+    """Validated targets per run, plus the files to delete. Bad files and lines are logged and dropped."""
+    targets, done = {}, []
+    for acct in accounts:
+        folder = os.path.join(spool, acct)
+        try:
+            uid = pwd.getpwnam(acct).pw_uid
+            names = sorted(n for n in os.listdir(folder) if n.endswith(".urls"))
+        except (KeyError, FileNotFoundError):
+            continue
+        for name in names:
+            path = os.path.join(folder, name)
+            done.append(path)
+            try:
+                text = read_spool_file(path, uid)
+            except (OSError, ValueError) as e:
+                log(f"{acct}/{name}: refused ({e})")
+                continue
+            for n, line in enumerate(text.splitlines(), 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    t = nginx_purge.parse(line)
+                except nginx_purge.BadUrl:
+                    log(f"{acct}/{name}:{n}: not a URL, skipped")
+                    continue
+                owner = nginx_purge.account_of(t, domain_map)
+                if owner != acct:
+                    log(f"{acct}/{name}:{n}: {t.bare_host} is not {acct}'s domain, skipped")
+                    continue
+                if len(targets) >= MAX_URLS_PER_RUN:
+                    log(f"{acct}/{name}:{n}: over {MAX_URLS_PER_RUN} URLs this run, rest skipped")
+                    break
+                targets.setdefault((t.bare_host, t.path), t)
+    return list(targets.values()), done
+
+
+def run(spool=SPOOL, accounts_file=ACCOUNTS_FILE, log_file=LOG, cache_root=nginx_purge.CACHE_ROOT, domain_map=None):
+    started = time.time()
+    lines = []
+    log = lines.append
+    domain_map = nginx_purge.domain_accounts() if domain_map is None else domain_map
+    targets, done = collect(spool, allowed_accounts(accounts_file), domain_map, log)
+    result = nginx_purge.purge(targets, cache_root=cache_root, accounts=domain_map) if targets else nginx_purge.Result()
+    for path in done:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    with open(log_file, "a") as f:
+        for l in lines:
+            f.write(f"{stamp} {l}\n")
+        f.write(f"{stamp} files {len(done)}, urls {len(targets)}, cached copies deleted {len(result.deleted)}, "
+                f"not cached {len(result.not_cached)}, {time.time() - started:.2f}s\n")
+    return result
+
+
+def setup(spool=SPOOL, accounts_file=ACCOUNTS_FILE):
+    wanted = allowed_accounts(accounts_file)
+    os.makedirs(spool, mode=0o755, exist_ok=True)
+    for acct in wanted:
+        pw = pwd.getpwnam(acct)  # an unknown account stops here, before anything is enabled for it
+        folder = os.path.join(spool, acct)
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        os.chown(folder, pw.pw_uid, pw.pw_gid)
+        os.chmod(folder, 0o700)
+        subprocess.run(["systemctl", "enable", "--now", f"nginx-purge-spool@{acct}.path"], check=True)
+        print(f"{acct}: folder {folder}, watcher on")
+    listed = subprocess.run(["systemctl", "list-units", "--all", "--plain", "--no-legend", "nginx-purge-spool@*.path"],
+                            check=True, capture_output=True, text=True).stdout.split()
+    for unit in (u for u in listed if u.startswith("nginx-purge-spool@") and u.endswith(".path")):
+        acct = unit[len("nginx-purge-spool@"):-len(".path")]
+        if acct not in wanted:
+            subprocess.run(["systemctl", "disable", "--now", unit], check=True)
+            print(f"{acct}: no longer listed, watcher off (folder left in place)")
+
+
+if __name__ == "__main__":
+    if os.geteuid() != 0:
+        sys.exit("nginx-purge-spool: run as root")
+    setup() if sys.argv[1:] == ["--setup"] else run()

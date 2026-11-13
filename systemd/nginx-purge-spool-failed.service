@@ -1,0 +1,6 @@
+[Unit]
+Description=Mail root when nginx-purge-spool fails
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '{ printf "Subject: nginx-purge-spool failed on %H\nTo: root\n\n"; systemctl status nginx-purge-spool.service --no-pager -n 40; } | /usr/sbin/sendmail -t'

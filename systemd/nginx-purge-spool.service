@@ -1,0 +1,9 @@
+[Unit]
+Description=Purge the pages sites listed in /var/spool/nginx-purge from the nginx cache
+OnFailure=nginx-purge-spool-failed.service
+
+[Service]
+Type=oneshot
+# Let a save that changes several pages finish dropping its lists, so one run purges them together.
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/local/sbin/nginx-purge-spool
