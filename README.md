@@ -104,11 +104,15 @@ that wants its changed pages purged at once writes their URLs, one per line, to 
 account (`nginx-purge-spool@<account>.path`, inotify: nothing polls) starts `nginx-purge-spool.service`, which:
 
 - waits 2 s (a save that changes several pages finishes dropping its lists), then reads every `*.urls` file;
-- accepts a file only if it is a plain file (no links) owned by that account, at most 256 KB;
+- accepts a file only if it is a plain file (no links) owned by that account, at most 256 KB (a site splits a
+  bigger list into several files; a bigger file is refused and logged);
 - purges a URL only if its domain belongs to that account (`/etc/userdatadomains`), so a site can't clear another
   site's pages; refused lines are logged with the reason;
-- purges all URLs in one batch (`nginx_purge.py`), deletes the files, and logs one line per run to
-  `/var/log/nginx-purge-spool.log`;
+- purges in batches of up to 5,000 URLs (`nginx_purge.py`), whole files only, until no file is left; deletes each
+  file after its batch and logs one line per batch to `/var/log/nginx-purge-spool.log` (before 1.3.0 a run stopped
+  at 5,000 URLs and deleted the files it hadn't finished);
+- removes a site's unfinished temporary files (`.tmp-*`, plain files only) older than an hour: left by a PHP fatal
+  error between writing a list and renaming it;
 - on failure, `nginx-purge-spool-failed.service` mails root the service status (`sendmail -t`).
 
 Which accounts may: `/etc/nginx-purge/accounts` (one per line). After editing it, `nginx-purge-spool --setup` makes

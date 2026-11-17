@@ -3,6 +3,7 @@ import importlib.util
 import os
 import pwd
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -154,6 +155,42 @@ class SpoolTest(unittest.TestCase):
         f = self.drop("https://shop.com/products/x\n")
         self.run_spool()
         self.assertTrue(os.path.exists(f) and os.path.exists(self.page))
+
+    def test_big_lists_are_processed_in_batches_none_dropped(self):
+        pages = [f"https://www.shop.com/p/{i}" for i in range(7)]
+        for page in pages:
+            cache_file(os.path.join(self.cache, "nobody"), page)
+        self.drop("\n".join(pages[:3]) + "\n", name="1.urls")
+        self.drop("\n".join(pages[3:6]) + "\n", name="2.urls")
+        self.drop(pages[6] + "\n", name="3.urls")
+        old = spool.MAX_URLS_PER_RUN
+        spool.MAX_URLS_PER_RUN = 2  # each file exceeds it: every file still goes whole, in its own batch
+        try:
+            r = self.run_spool()
+        finally:
+            spool.MAX_URLS_PER_RUN = old
+        self.assertEqual(sorted(r.deleted), sorted(pages))
+        self.assertEqual(os.listdir(os.path.join(self.spool, self.acct)), [])
+        log = open(self.log).read()
+        self.assertEqual(log.count("files 1, urls"), 3)
+        self.assertNotIn("skipped", log)
+
+    def test_stale_temporary_files_are_swept_fresh_ones_kept(self):
+        folder = os.path.join(self.spool, self.acct)
+        old = self.drop("x", name=".tmp-old")
+        new = self.drop("x", name=".tmp-new")
+        os.utime(old, (time.time() - 7200, time.time() - 7200))
+        target = os.path.join(self.root, "outside")
+        with open(target, "w") as f:
+            f.write("keep")
+        os.utime(target, (time.time() - 7200, time.time() - 7200))
+        link = os.path.join(folder, ".tmp-link")
+        os.symlink(target, link)
+        self.run_spool()
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.exists(new))
+        self.assertTrue(os.path.islink(link) and os.path.exists(target))
+        self.assertIn(".tmp-old: unfinished temporary file older than", open(self.log).read())
 
 
 if __name__ == "__main__":

@@ -26,8 +26,9 @@ import nginx_purge  # noqa: E402
 SPOOL = "/var/spool/nginx-purge"
 ACCOUNTS_FILE = "/etc/nginx-purge/accounts"
 LOG = "/var/log/nginx-purge-spool.log"
-MAX_FILE_BYTES = 256 * 1024
-MAX_URLS_PER_RUN = 5000
+MAX_FILE_BYTES = 256 * 1024     # per drop file; sites split bigger lists (mmd_nginx_purge's MMD_NGINX_PURGE_FILE_BYTES)
+MAX_URLS_PER_RUN = 5000         # per batch; whole files only, and batches repeat until the folders are empty
+STALE_TMP_SECONDS = 3600        # a site's unfinished temporary file older than this is left over from a crash
 
 
 def allowed_accounts(path=ACCOUNTS_FILE):
@@ -51,8 +52,30 @@ def read_spool_file(path, uid):
         os.close(fd)
 
 
+def sweep_stale_tmp(folder, log, now=None):
+    """Delete a site's leftover temporary files (".tmp-*", plain files only, older than STALE_TMP_SECONDS).
+
+    A site writes its list to .tmp-* and renames it to *.urls; a PHP fatal error between the two leaves the
+    temporary file behind, which nothing else would ever remove."""
+    now = time.time() if now is None else now
+    try:
+        entries = list(os.scandir(folder))
+    except FileNotFoundError:
+        return
+    for e in entries:
+        if not e.name.startswith(".tmp-") or not e.is_file(follow_symlinks=False):
+            continue
+        if now - e.stat(follow_symlinks=False).st_mtime > STALE_TMP_SECONDS:
+            os.unlink(e.path)
+            log(f"{os.path.basename(folder)}/{e.name}: unfinished temporary file older than {STALE_TMP_SECONDS} s, removed")
+
+
 def collect(spool, accounts, domain_map, log):
-    """Validated targets per run, plus the files to delete. Bad files and lines are logged and dropped."""
+    """One batch: validated targets, plus the files they came from (to delete after the purge).
+
+    Whole files only: a file is taken complete or not at all, and no new file is started once the batch holds
+    MAX_URLS_PER_RUN URLs, so files left for the next batch are never deleted unread. Bad files and lines are logged
+    and dropped (their files are deleted with the batch)."""
     targets, done = {}, []
     for acct in accounts:
         folder = os.path.join(spool, acct)
@@ -62,6 +85,8 @@ def collect(spool, accounts, domain_map, log):
         except (KeyError, FileNotFoundError):
             continue
         for name in names:
+            if len(targets) >= MAX_URLS_PER_RUN:
+                return list(targets.values()), done
             path = os.path.join(folder, name)
             done.append(path)
             try:
@@ -82,32 +107,40 @@ def collect(spool, accounts, domain_map, log):
                 if owner != acct:
                     log(f"{acct}/{name}:{n}: {t.bare_host} is not {acct}'s domain, skipped")
                     continue
-                if len(targets) >= MAX_URLS_PER_RUN:
-                    log(f"{acct}/{name}:{n}: over {MAX_URLS_PER_RUN} URLs this run, rest skipped")
-                    break
                 targets.setdefault((t.bare_host, t.path), t)
     return list(targets.values()), done
 
 
 def run(spool=SPOOL, accounts_file=ACCOUNTS_FILE, log_file=LOG, cache_root=nginx_purge.CACHE_ROOT, domain_map=None):
-    started = time.time()
+    """Batches until no *.urls file is left; one log line per batch."""
     lines = []
     log = lines.append
     domain_map = nginx_purge.domain_accounts() if domain_map is None else domain_map
-    targets, done = collect(spool, allowed_accounts(accounts_file), domain_map, log)
-    result = nginx_purge.purge(targets, cache_root=cache_root, accounts=domain_map) if targets else nginx_purge.Result()
-    for path in done:
-        try:
-            os.unlink(path)
-        except FileNotFoundError:
-            pass
+    accounts = allowed_accounts(accounts_file)
+    for acct in accounts:
+        sweep_stale_tmp(os.path.join(spool, acct), log)
+    total = nginx_purge.Result()
+    while True:
+        started = time.time()
+        targets, done = collect(spool, accounts, domain_map, log)
+        if not done:
+            break
+        result = nginx_purge.purge(targets, cache_root=cache_root, accounts=domain_map) if targets else nginx_purge.Result()
+        for path in done:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+        log(f"files {len(done)}, urls {len(targets)}, cached copies deleted {len(result.deleted)}, "
+            f"not cached {len(result.not_cached)}, {time.time() - started:.2f}s")
+        total.deleted += result.deleted
+        total.not_cached += result.not_cached
+        total.unknown += result.unknown
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
     with open(log_file, "a") as f:
         for l in lines:
             f.write(f"{stamp} {l}\n")
-        f.write(f"{stamp} files {len(done)}, urls {len(targets)}, cached copies deleted {len(result.deleted)}, "
-                f"not cached {len(result.not_cached)}, {time.time() - started:.2f}s\n")
-    return result
+    return total
 
 
 def setup(spool=SPOOL, accounts_file=ACCOUNTS_FILE):

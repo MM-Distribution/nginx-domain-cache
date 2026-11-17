@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0 (2026-11-16)
+
+- nginx-purge-spool: batches of up to 5,000 URLs, whole files only, repeated until the folders are empty. Before, a run
+  stopped at 5,000 URLs and still deleted every file it had opened, so a big import's pages were silently not purged
+  (found by a boundary review of mmd_nginx_purge).
+- nginx-purge-spool: removes a site's leftover `.tmp-*` files older than an hour (plain files only, never links).
+- Limits documented as the contract sites write to (256 KB per file). 15 tests; the 2 new ones fail on 1.2.0.
+
 ## 1.2.0 (2026-11-13)
 
 - nginx-purge-url rewritten in Python on the shared nginx_purge.py: same options and output (checked against 1.1.0
