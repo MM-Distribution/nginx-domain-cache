@@ -120,6 +120,13 @@ account (`nginx-purge-spool@<account>.path`, inotify: nothing polls) starts `ngi
   error between writing a list and renaming it;
 - on failure, `nginx-purge-spool-failed.service` mails root the service status (`sendmail -t`).
 
+**The cache key it matches** (cPanel ea-nginx's default; no `proxy_cache_key` is set under /etc/nginx): each cache
+file holds a line `KEY: <scheme>://<host><request URI>`, e.g. `KEY: https://www.painterparts.com/contact`, with no
+port. `nginx_purge.py` compares the host without `www.` and case, and the path byte for byte, with any query string.
+If an ea-nginx update ever changes the key (adds a port or `$proxy_host`), every purge would report "not cached"
+without an error: check one real cache file's `KEY:` line after such an update. Sites write addresses in the same
+form (mmd_nginx_purge's README, Requirements).
+
 Which accounts may: `/etc/nginx-purge/accounts` (one per line). After editing it, `nginx-purge-spool --setup` makes
 the folders and enables or disables the watchers. Units: `systemd/` (install to `/etc/systemd/system/`, then
 `systemctl daemon-reload`).

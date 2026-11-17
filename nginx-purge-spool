@@ -64,6 +64,7 @@ def sweep_stale_tmp(folder, log, now=None):
         return
     for e in entries:
         try:
+            # ".tmp-" is the prefix sites write under (mmd_nginx_purge's MMD_NGINX_PURGE_TMP_PREFIX): change both together.
             if not e.name.startswith(".tmp-") or not e.is_file(follow_symlinks=False):
                 continue
             if now - e.stat(follow_symlinks=False).st_mtime > STALE_TMP_SECONDS:
