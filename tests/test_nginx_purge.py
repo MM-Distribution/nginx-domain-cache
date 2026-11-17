@@ -236,6 +236,25 @@ class SpoolTest(unittest.TestCase):
             np.purge = real_purge
         self.assertTrue(os.path.exists(self.log))
 
+    def test_temporary_file_renamed_during_the_sweep_is_not_an_error(self):
+        tmp = self.drop("https://shop.com/products/x\n", name=".tmp-racing")
+        os.utime(tmp, (time.time() - 7200, time.time() - 7200))
+        real_scandir = os.scandir
+        folder = os.path.dirname(tmp)
+        def listing_then_rename(path):
+            if path != folder:
+                return real_scandir(path)  # os.walk in the purge uses it too
+            entries = list(real_scandir(path))
+            if os.path.exists(tmp):
+                os.rename(tmp, os.path.join(os.path.dirname(tmp), "a.urls"))  # the site finished its file
+            return iter(entries)
+        spool.os.scandir = listing_then_rename
+        try:
+            r = self.run_spool()
+        finally:
+            spool.os.scandir = real_scandir
+        self.assertEqual(r.deleted, ["https://www.shop.com/products/x"])
+
 
 if __name__ == "__main__":
     unittest.main()

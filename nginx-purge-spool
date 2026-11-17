@@ -63,11 +63,15 @@ def sweep_stale_tmp(folder, log, now=None):
     except FileNotFoundError:
         return
     for e in entries:
-        if not e.name.startswith(".tmp-") or not e.is_file(follow_symlinks=False):
-            continue
-        if now - e.stat(follow_symlinks=False).st_mtime > STALE_TMP_SECONDS:
-            os.unlink(e.path)
-            log(f"{os.path.basename(folder)}/{e.name}: unfinished temporary file older than {STALE_TMP_SECONDS} s, removed")
+        try:
+            if not e.name.startswith(".tmp-") or not e.is_file(follow_symlinks=False):
+                continue
+            if now - e.stat(follow_symlinks=False).st_mtime > STALE_TMP_SECONDS:
+                os.unlink(e.path)
+                log(f"{os.path.basename(folder)}/{e.name}: unfinished temporary file older than {STALE_TMP_SECONDS} s, "
+                    "removed")
+        except FileNotFoundError:
+            continue  # the site renamed (finished) it after the listing: not a leftover
 
 
 def collect(spool, accounts, domain_map, log):
@@ -117,10 +121,10 @@ def run(spool=SPOOL, accounts_file=ACCOUNTS_FILE, log_file=LOG, cache_root=nginx
     log = lines.append
     domain_map = nginx_purge.domain_accounts() if domain_map is None else domain_map
     accounts = allowed_accounts(accounts_file)
-    for acct in accounts:
-        sweep_stale_tmp(os.path.join(spool, acct), log)
     total = nginx_purge.Result()
     try:
+        for acct in accounts:
+            sweep_stale_tmp(os.path.join(spool, acct), log)
         _batches(spool, accounts, domain_map, cache_root, log, total)
     finally:
         # Written whatever happened, so a run that fails still leaves its lines (and the failure mail points here).

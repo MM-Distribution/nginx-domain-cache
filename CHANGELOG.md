@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.3 (2026-11-17)
+
+- The leftover-temp-file sweep no longer fails the whole run when a site renames (finishes) its temporary file
+  between the folder listing and the check; the sweep now runs inside the logged block, so its lines are kept even if
+  a run fails. 19 tests, the new one fails on 1.3.2. From mmd_nginx_purge's boundary review.
+
 ## 1.3.2 (2026-11-17)
 
 - A cache file evicted by nginx between the folder scan and its read or delete no longer crashes the run (and with it
