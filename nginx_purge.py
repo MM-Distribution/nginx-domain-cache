@@ -15,6 +15,8 @@ CACHE_ROOT = "/var/cache/ea-nginx/proxy"
 DOMAINS_FILE = "/etc/userdatadomains"
 KEY_SCAN_BYTES = 4096  # the KEY line sits ~340 bytes in (checked 2026-11-13 on 1,078 files); fall back to the whole file
 
+# Copied by mmd_nginx_purge (MM-Distribution/mmd_nginx_purge, mmd_nginx_purge_spool_url() in mmd_nginx_purge.spool.inc):
+# change both together, or a site writes lines this refuses (logged only here).
 URL_RE = re.compile(r"^(https?://)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})(/[^?#\s]*)?([?][^#\s]*)?$")
 
 
