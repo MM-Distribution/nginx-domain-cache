@@ -255,6 +255,17 @@ class SpoolTest(unittest.TestCase):
             spool.os.scandir = real_scandir
         self.assertEqual(r.deleted, ["https://www.shop.com/products/x"])
 
+    def test_a_folder_named_urls_never_stalls_the_run(self):
+        os.mkdir(os.path.join(self.spool, self.acct, "a.urls"))
+        f = self.drop("https://shop.com/products/x\n", name="b.urls")
+        r = self.run_spool()
+        self.assertEqual(r.deleted, ["https://www.shop.com/products/x"])
+        self.assertFalse(os.path.exists(f))
+        folder = os.path.join(self.spool, self.acct)
+        self.assertFalse(os.path.exists(os.path.join(folder, "a.urls")))  # no longer matches the watch
+        self.assertEqual(len([n for n in os.listdir(folder) if n.startswith("a.urls.not-a-list-")]), 1)
+        self.assertIn("a.urls: not a plain file, renamed to a.urls.not-a-list-", open(self.log).read())
+
 
 if __name__ == "__main__":
     unittest.main()

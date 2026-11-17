@@ -105,7 +105,9 @@ account (`nginx-purge-spool@<account>.path`, inotify: nothing polls) starts `ngi
 
 - waits 2 s (a save that changes several pages finishes dropping its lists), then reads every `*.urls` file;
 - accepts a file only if it is a plain file (no links) owned by that account, at most 256 KB (a site splits a
-  bigger list into several files; a bigger file is refused and logged);
+  bigger list into several files; a bigger file is refused and logged). A link named `*.urls` is refused and deleted
+  (the link only); a folder or anything else that isn't a file is renamed to `<name>.not-a-list-<time>` and logged,
+  so it can't re-trigger the watcher or stop the run (1.3.4);
 - purges a URL only if its domain belongs to that account (`/etc/userdatadomains`), so a site can't clear another
   site's pages; refused lines are logged with the reason. A file is plain ASCII, one URL per line ending in `\n`
   (read as UTF-8 and split on line breaks). A URL has no port, and its path is matched byte for byte

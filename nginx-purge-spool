@@ -93,6 +93,21 @@ def collect(spool, accounts, domain_map, log):
             if len(targets) >= MAX_URLS_PER_RUN:
                 return list(targets.values()), done
             path = os.path.join(folder, name)
+            try:
+                mode = os.lstat(path).st_mode
+            except FileNotFoundError:
+                continue
+            if stat.S_ISDIR(mode) or not (stat.S_ISREG(mode) or stat.S_ISLNK(mode)):
+                # A folder (or device, socket...) named *.urls is never a list and can't be deleted like one. Renamed
+                # out of the *.urls pattern, never left: the path unit would otherwise re-trigger on it until systemd
+                # stops the watcher for the account. A link goes on below: refused when read, deleted (only the link).
+                aside = f"{path}.not-a-list-{int(time.time())}"
+                try:
+                    os.rename(path, aside)
+                    log(f"{acct}/{name}: not a plain file, renamed to {os.path.basename(aside)}")
+                except OSError as e:
+                    log(f"{acct}/{name}: not a plain file, could not rename ({e})")
+                continue
             done.append(path)
             try:
                 text = read_spool_file(path, uid)
@@ -149,6 +164,8 @@ def _batches(spool, accounts, domain_map, cache_root, log, total):
                 os.unlink(path)
             except FileNotFoundError:
                 pass
+            except OSError as e:
+                log(f"{os.path.basename(os.path.dirname(path))}/{os.path.basename(path)}: could not delete ({e})")
         accts = sorted({os.path.basename(os.path.dirname(p)) for p in done})
         log(f"files {len(done)}, urls {len(targets)}, cached copies deleted {len(result.deleted)}, "
             f"not cached {len(result.not_cached)}, {time.time() - started:.2f}s, accounts {','.join(accts)}")

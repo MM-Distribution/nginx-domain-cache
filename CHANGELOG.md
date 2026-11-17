@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.4 (2026-11-17)
+
+- A folder (or anything else that isn't a file or link) named `*.urls` in a spool folder no longer stops the run for
+  every account (it couldn't be deleted, so each run failed on it and the watcher re-triggered): it is renamed to
+  `<name>.not-a-list-<time>` and logged. A delete that fails is logged instead of ending the run. Links keep their
+  1.3.0 handling (refused, link deleted). 20 tests; the new one fails on 1.3.3. From mmd_nginx_purge's boundary
+  review (round 21).
+
 ## 1.3.3 (2026-11-17)
 
 - The leftover-temp-file sweep no longer fails the whole run when a site renames (finishes) its temporary file
