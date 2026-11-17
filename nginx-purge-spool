@@ -120,6 +120,19 @@ def run(spool=SPOOL, accounts_file=ACCOUNTS_FILE, log_file=LOG, cache_root=nginx
     for acct in accounts:
         sweep_stale_tmp(os.path.join(spool, acct), log)
     total = nginx_purge.Result()
+    try:
+        _batches(spool, accounts, domain_map, cache_root, log, total)
+    finally:
+        # Written whatever happened, so a run that fails still leaves its lines (and the failure mail points here).
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_file, "a") as f:
+            for l in lines:
+                f.write(f"{stamp} {l}\n")
+    return total
+
+
+def _batches(spool, accounts, domain_map, cache_root, log, total):
+    """Purge batch after batch until no *.urls file is left (see run())."""
     while True:
         started = time.time()
         targets, done = collect(spool, accounts, domain_map, log)
@@ -137,11 +150,6 @@ def run(spool=SPOOL, accounts_file=ACCOUNTS_FILE, log_file=LOG, cache_root=nginx
         total.deleted += result.deleted
         total.not_cached += result.not_cached
         total.unknown += result.unknown
-    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    with open(log_file, "a") as f:
-        for l in lines:
-            f.write(f"{stamp} {l}\n")
-    return total
 
 
 def setup(spool=SPOOL, accounts_file=ACCOUNTS_FILE):

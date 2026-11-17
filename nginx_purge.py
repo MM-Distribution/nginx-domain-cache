@@ -61,7 +61,13 @@ def account_of(target: Target, accounts: dict):
 
 
 def read_key(path: str):
-    with open(path, "rb") as f:
+    """The cache key of one cache file, or None (no KEY line, or the file is gone: nginx's cache manager evicts files
+    at any moment, between the folder listing and this read)."""
+    try:
+        f = open(path, "rb")
+    except FileNotFoundError:
+        return None
+    with f:
         head = f.read(KEY_SCAN_BYTES)
         i = head.find(b"\nKEY: ")
         if i < 0:
@@ -105,7 +111,10 @@ def purge(targets: list, dry_run: bool = False, cache_root: str = CACHE_ROOT, ac
                         continue
                     hit.update(t.url for t in matching)
                     if not dry_run:
-                        os.unlink(path)
+                        try:
+                            os.unlink(path)
+                        except FileNotFoundError:
+                            pass  # evicted by nginx meanwhile: the copy is gone either way
                     result.deleted.append(key)
         result.not_cached.extend(t.url for t in wanted if t.url not in hit)
     return result

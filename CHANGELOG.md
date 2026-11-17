@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.2 (2026-11-17)
+
+- A cache file evicted by nginx between the folder scan and its read or delete no longer crashes the run (and with it
+  every account's purges for that run); the run's log lines are written even when it fails. README: the batch size
+  is a soft limit; drop files are ASCII, one URL per line. 18 tests, the 3 new ones fail on 1.3.1. From
+  mmd_nginx_purge's boundary review.
+
 ## 1.3.1 (2026-11-17)
 
 - nginx-purge-spool: each batch's log line names the accounts it came from. README: the URL contract (no port, path

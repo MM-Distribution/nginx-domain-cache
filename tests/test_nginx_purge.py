@@ -193,6 +193,49 @@ class SpoolTest(unittest.TestCase):
         self.assertTrue(os.path.islink(link) and os.path.exists(target))
         self.assertIn(".tmp-old: unfinished temporary file older than", open(self.log).read())
 
+    def test_cache_file_evicted_mid_scan_is_not_an_error(self):
+        # nginx's cache manager deletes a file between the folder listing and the read.
+        real_read = np.read_key
+        def vanishing_read(path):
+            if path == self.page:
+                os.unlink(path)
+            return real_read(path)
+        np.read_key = vanishing_read
+        try:
+            self.drop("https://shop.com/products/x\nhttps://shop.com/\n")
+            r = self.run_spool()
+        finally:
+            np.read_key = real_read
+        self.assertEqual(r.deleted, ["https://www.shop.com/"])
+        self.assertIn("files 1, urls 2", open(self.log).read())
+
+    def test_cache_file_evicted_between_read_and_delete(self):
+        real_unlink = os.unlink
+        def evicted_first(path, *a, **k):
+            if path == self.page and os.path.exists(path):
+                real_unlink(path)  # nginx got there first
+            return real_unlink(path, *a, **k)
+        np.os.unlink = evicted_first
+        try:
+            self.drop("https://shop.com/products/x\n")
+            r = self.run_spool()
+        finally:
+            np.os.unlink = real_unlink
+        self.assertEqual(r.deleted, ["https://www.shop.com/products/x"])
+
+    def test_log_is_written_even_when_a_run_fails(self):
+        real_purge = np.purge
+        def broken(*a, **k):
+            raise RuntimeError("disk on fire")
+        np.purge = broken
+        try:
+            self.drop("https://shop.com/products/x\n")
+            with self.assertRaises(RuntimeError):
+                self.run_spool()
+        finally:
+            np.purge = real_purge
+        self.assertTrue(os.path.exists(self.log))
+
 
 if __name__ == "__main__":
     unittest.main()
