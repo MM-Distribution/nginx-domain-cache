@@ -131,8 +131,9 @@ def run(spool=SPOOL, accounts_file=ACCOUNTS_FILE, log_file=LOG, cache_root=nginx
                 os.unlink(path)
             except FileNotFoundError:
                 pass
+        accts = sorted({os.path.basename(os.path.dirname(p)) for p in done})
         log(f"files {len(done)}, urls {len(targets)}, cached copies deleted {len(result.deleted)}, "
-            f"not cached {len(result.not_cached)}, {time.time() - started:.2f}s")
+            f"not cached {len(result.not_cached)}, {time.time() - started:.2f}s, accounts {','.join(accts)}")
         total.deleted += result.deleted
         total.not_cached += result.not_cached
         total.unknown += result.unknown

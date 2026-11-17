@@ -107,9 +107,10 @@ account (`nginx-purge-spool@<account>.path`, inotify: nothing polls) starts `ngi
 - accepts a file only if it is a plain file (no links) owned by that account, at most 256 KB (a site splits a
   bigger list into several files; a bigger file is refused and logged);
 - purges a URL only if its domain belongs to that account (`/etc/userdatadomains`), so a site can't clear another
-  site's pages; refused lines are logged with the reason;
+  site's pages; refused lines are logged with the reason. A URL has no port, and its path is matched byte for byte
+  against the cached request (percent-encoding as the site wrote it), with any query string;
 - purges in batches of up to 5,000 URLs (`nginx_purge.py`), whole files only, until no file is left; deletes each
-  file after its batch and logs one line per batch to `/var/log/nginx-purge-spool.log` (before 1.3.0 a run stopped
+  file after its batch and logs one line per batch, with the accounts in it, to `/var/log/nginx-purge-spool.log` (before 1.3.0 a run stopped
   at 5,000 URLs and deleted the files it hadn't finished);
 - removes a site's unfinished temporary files (`.tmp-*`, plain files only) older than an hour: left by a PHP fatal
   error between writing a list and renaming it;

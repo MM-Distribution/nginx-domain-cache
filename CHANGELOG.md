@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.1 (2026-11-17)
+
+- nginx-purge-spool: each batch's log line names the accounts it came from. README: the URL contract (no port, path
+  matched byte for byte). From mmd_nginx_purge's boundary review.
+
 ## 1.3.0 (2026-11-16)
 
 - nginx-purge-spool: batches of up to 5,000 URLs, whole files only, repeated until the folders are empty. Before, a run

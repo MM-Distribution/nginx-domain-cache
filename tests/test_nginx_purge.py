@@ -127,6 +127,7 @@ class SpoolTest(unittest.TestCase):
         self.assertIn("other.com is not nobody's domain", log)
         self.assertIn("not a URL", log)
         self.assertIn("files 1, urls 2, cached copies deleted 2", log)
+        self.assertIn("accounts nobody", log)
 
     def test_file_not_owned_by_the_account_is_refused(self):
         self.drop("https://shop.com/products/x\n", owner=0)
