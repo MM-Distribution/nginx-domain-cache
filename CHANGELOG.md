@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.5 (2026-11-17)
+
+- `nginx-purge-spool --version` prints the installed version, so a site's stated minimum can be checked on the
+  server. Any other unknown option (e.g. `--help`) is refused with the usage line; before, it was ignored and the
+  spool processed. nginx_purge.py's pointer to the site-side URL check names mmd_nginx_purge_spool_check() (the
+  old name was removed in the module). 22 tests. From mmd_nginx_purge's round-22 boundary review.
+
 ## 1.3.4 (2026-11-17)
 
 - A folder (or anything else that isn't a file or link) named `*.urls` in a spool folder no longer stops the run for

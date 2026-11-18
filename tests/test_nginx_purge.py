@@ -267,5 +267,23 @@ class SpoolTest(unittest.TestCase):
         self.assertIn("a.urls: not a plain file, renamed to a.urls.not-a-list-", open(self.log).read())
 
 
+
+class CommandLineTest(unittest.TestCase):
+    SCRIPT = os.path.join(HERE, "nginx-purge-spool")
+
+    def test_version_matches_the_changelog(self):
+        import re
+        import subprocess
+        out = subprocess.run([sys.executable, "-I", self.SCRIPT, "--version"], capture_output=True, text=True, check=True)
+        newest = re.search(r"^## (\S+)", open(os.path.join(HERE, "CHANGELOG.md")).read(), re.M).group(1)
+        self.assertEqual(out.stdout.strip(), f"nginx-purge-spool {newest}")
+
+    def test_unknown_option_is_refused_not_run(self):
+        import subprocess
+        out = subprocess.run([sys.executable, "-I", self.SCRIPT, "--help"], capture_output=True, text=True)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("usage:", out.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

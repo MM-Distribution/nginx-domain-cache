@@ -9,6 +9,7 @@
 # Every run is logged to /var/log/nginx-purge-spool.log (counts, rejected lines and why); processed files are deleted.
 #
 #   nginx-purge-spool          process what's waiting (what systemd runs)
+#   nginx-purge-spool --version  the installed version (sites' modules state the minimum they need)
 #   nginx-purge-spool --setup  after editing /etc/nginx-purge/accounts: make each listed account's folder (owner the
 #                              account, 700) and enable its watcher nginx-purge-spool@<account>.path; watchers of
 #                              accounts no longer listed are disabled (their folders are left for a person to remove)
@@ -23,6 +24,7 @@ for d in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/nginx-pur
     sys.path.insert(0, d) if d not in sys.path else None
 import nginx_purge  # noqa: E402
 
+VERSION = "1.3.5"  # kept equal to the newest CHANGELOG.md heading
 SPOOL = "/var/spool/nginx-purge"
 ACCOUNTS_FILE = "/etc/nginx-purge/accounts"
 LOG = "/var/log/nginx-purge-spool.log"
@@ -194,7 +196,17 @@ def setup(spool=SPOOL, accounts_file=ACCOUNTS_FILE):
             print(f"{acct}: no longer listed, watcher off (folder left in place)")
 
 
+USAGE = "usage: nginx-purge-spool [--setup | --version]"
+
+
 if __name__ == "__main__":
+    args = sys.argv[1:]
+    if args == ["--version"]:
+        print(f"nginx-purge-spool {VERSION}")
+        sys.exit(0)
+    if args not in ([], ["--setup"]):
+        # Anything else (a mistyped option, --help) is refused, never taken as "process the spool now".
+        sys.exit(USAGE)
     if os.geteuid() != 0:
         sys.exit("nginx-purge-spool: run as root")
-    setup() if sys.argv[1:] == ["--setup"] else run()
+    setup() if args == ["--setup"] else run()

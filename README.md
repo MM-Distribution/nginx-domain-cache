@@ -130,7 +130,8 @@ without an error: check one real cache file's `KEY:` line after such an update. 
 form (mmd_nginx_purge's README, Requirements).
 
 Which accounts may: `/etc/nginx-purge/accounts` (one per line). After editing it, `nginx-purge-spool --setup` makes
-the folders and enables or disables the watchers. Units: `systemd/` (install to `/etc/systemd/system/`, then
+the folders and enables or disables the watchers. `nginx-purge-spool --version` shows the installed version (a
+site's module states the minimum it needs). Units: `systemd/` (install to `/etc/systemd/system/`, then
 `systemctl daemon-reload`).
 
 Tests: `python3.12 -m unittest discover -s tests -t .` (as root: the spool tests need real file ownership).
