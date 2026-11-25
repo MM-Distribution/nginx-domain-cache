@@ -5,7 +5,7 @@
 - nginx-purge-spool: log lines are written as one line of plain text. File names (and the error texts that quote
   them) come from the sites; a name with a line break could add a fake line to `/var/log/nginx-purge-spool.log`, and
   one with a terminal escape could reach whoever reads it. Control and unprintable characters are now written as
-  `\xNN` / `\uNNNN`. Found in the root-tool audit (root never acts on what an account controls).
+  `\xNN` / `\uNNNN`, and a backslash doubled. Found in the root-tool audit (root never acts on what an account controls).
 
 ## 1.3.5 (2026-11-17)
 

@@ -36,8 +36,9 @@ STALE_TMP_SECONDS = 3600        # a site's unfinished temporary file older than 
 def printable(text):
     """A log line as one line of plain text: control characters (line breaks, terminal escapes) and anything else
     unprintable written as \\xNN / \\uNNNN. File names come from the sites, and so do the OSError texts that quote
-    them: a name must never start a log line of its own or send escape codes to whoever reads the log."""
-    return "".join(c if c.isprintable() else c.encode("unicode_escape").decode("ascii") for c in text)
+    them: a name must never start a log line of its own or send escape codes to whoever reads the log. A backslash is
+    written doubled, so a name that literally contains "\\n" reads differently from one with a line break."""
+    return "".join(c if c.isprintable() and c != "\\" else c.encode("unicode_escape").decode("ascii") for c in text)
 
 
 def allowed_accounts(path=ACCOUNTS_FILE):

@@ -156,6 +156,11 @@ class SpoolTest(unittest.TestCase):
         self.assertNotIn("\x1b", open(self.log).read())
         self.assertIn("\\n", open(self.log).read())
 
+    def test_backslash_in_a_name_is_doubled(self):
+        self.drop("https://other.com/\n", name="lit\\nname.urls")
+        self.run_spool()
+        self.assertIn("lit\\\\nname.urls", open(self.log).read())
+
     def test_unfinished_file_is_left_alone(self):
         tmp = self.drop("https://shop.com/products/x\n", name="a.tmp")
         self.run_spool()
