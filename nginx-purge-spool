@@ -24,13 +24,20 @@ for d in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/nginx-pur
     sys.path.insert(0, d) if d not in sys.path else None
 import nginx_purge  # noqa: E402
 
-VERSION = "1.3.5"  # kept equal to the newest CHANGELOG.md heading
+VERSION = "1.3.6"  # kept equal to the newest CHANGELOG.md heading
 SPOOL = "/var/spool/nginx-purge"
 ACCOUNTS_FILE = "/etc/nginx-purge/accounts"
 LOG = "/var/log/nginx-purge-spool.log"
 MAX_FILE_BYTES = 256 * 1024     # per drop file; sites split bigger lists (mmd_nginx_purge's MMD_NGINX_PURGE_FILE_BYTES)
 MAX_URLS_PER_RUN = 5000         # per batch; whole files only, and batches repeat until the folders are empty
 STALE_TMP_SECONDS = 3600        # a site's unfinished temporary file older than this is left over from a crash
+
+
+def printable(text):
+    """A log line as one line of plain text: control characters (line breaks, terminal escapes) and anything else
+    unprintable written as \\xNN / \\uNNNN. File names come from the sites, and so do the OSError texts that quote
+    them: a name must never start a log line of its own or send escape codes to whoever reads the log."""
+    return "".join(c if c.isprintable() else c.encode("unicode_escape").decode("ascii") for c in text)
 
 
 def allowed_accounts(path=ACCOUNTS_FILE):
@@ -149,7 +156,7 @@ def run(spool=SPOOL, accounts_file=ACCOUNTS_FILE, log_file=LOG, cache_root=nginx
         stamp = time.strftime("%Y-%m-%d %H:%M:%S")
         with open(log_file, "a") as f:
             for l in lines:
-                f.write(f"{stamp} {l}\n")
+                f.write(f"{stamp} {printable(l)}\n")
     return total
 
 

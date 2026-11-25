@@ -145,6 +145,17 @@ class SpoolTest(unittest.TestCase):
         self.assertTrue(os.path.exists(self.page))
         self.assertIn("refused", open(self.log).read())
 
+    def test_file_names_cannot_fake_log_lines(self):
+        # A site chooses its file names: a line break or terminal escape in one must not reach the log as is.
+        self.drop("https://other.com/\n", name="x\n2026-01-01 00:00:00 files 9, urls 9, FAKE\x1b[2J.urls")
+        os.makedirs(os.path.join(self.spool, self.acct, "d\nFAKE2.urls"))
+        self.run_spool()
+        lines = open(self.log).read().splitlines()
+        self.assertFalse([l for l in lines if "FAKE" in l and not l.startswith(lines[0][:20])], lines)
+        self.assertFalse(any(l.lstrip().startswith(("2026-01-01", "FAKE")) for l in lines), lines)
+        self.assertNotIn("\x1b", open(self.log).read())
+        self.assertIn("\\n", open(self.log).read())
+
     def test_unfinished_file_is_left_alone(self):
         tmp = self.drop("https://shop.com/products/x\n", name="a.tmp")
         self.run_spool()
